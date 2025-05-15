@@ -1,0 +1,1860 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "12b14fc5",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:04:43.413069Z",
+     "iopub.status.busy": "2025-05-15T01:04:43.412717Z",
+     "iopub.status.idle": "2025-05-15T01:04:43.418557Z",
+     "shell.execute_reply": "2025-05-15T01:04:43.417290Z"
+    },
+    "papermill": {
+     "duration": 0.021331,
+     "end_time": "2025-05-15T01:04:43.420289",
+     "exception": false,
+     "start_time": "2025-05-15T01:04:43.398958",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#from : https://www.kaggle.com/code/suyue715/tfidfvectorizer/notebook dengan beberapa modifikasi karena method berubah nama di versi baru "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "a8753e4f",
+   "metadata": {
+    "_cell_guid": "b1076dfc-b9ad-4769-8c92-a6c4dae69d19",
+    "_uuid": "8f2839f25d086af736a60e9eeb907d3b93b6e0e5",
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:04:43.433911Z",
+     "iopub.status.busy": "2025-05-15T01:04:43.433606Z",
+     "iopub.status.idle": "2025-05-15T01:05:16.144252Z",
+     "shell.execute_reply": "2025-05-15T01:05:16.143150Z"
+    },
+    "papermill": {
+     "duration": 32.719405,
+     "end_time": "2025-05-15T01:05:16.146081",
+     "exception": false,
+     "start_time": "2025-05-15T01:04:43.426676",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "ir-2025-spooky-author-identification\n",
+      "\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "2025-05-15 01:05:00.509152: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:477] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered\n",
+      "WARNING: All log messages before absl::InitializeLog() is called are written to STDERR\n",
+      "E0000 00:00:1747271100.769762      12 cuda_dnn.cc:8310] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered\n",
+      "E0000 00:00:1747271100.841756      12 cuda_blas.cc:1418] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered\n"
+     ]
+    }
+   ],
+   "source": [
+    "# This Python 3 environment comes with many helpful analytics libraries installed\n",
+    "# It is defined by the kaggle/python docker image: https://github.com/kaggle/docker-python\n",
+    "# For example, here's several helpful packages to load in \n",
+    "\n",
+    "import numpy as np # linear algebra\n",
+    "import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)\n",
+    "\n",
+    "\n",
+    "from nltk.corpus import stopwords #buat pake tools stopwords punya nltk\n",
+    "from nltk.tokenize import word_tokenize #buat pake tools tokenization punya nltk\n",
+    "from nltk.stem import SnowballStemmer #buat pake tools stemmer (ngubah kata jadi kata dasar)\n",
+    "# Input data files are available in the \"../input/\" directory.\n",
+    "# For example, running this (by clicking run or pressing Shift+Enter) will list the files in the input directory\n",
+    "\n",
+    "from subprocess import check_output #ini buat cek yang ada di direktori apa aja\n",
+    "print(check_output([\"ls\", \"../input\"]).decode(\"utf8\"))\n",
+    "\n",
+    "#sama-sama tools NLP, yang pertama spacy yang kedua teks blob, nanti bisa bantu saat proses tokenisasi stemming dkk, \n",
+    "#nanti pakai yang library EN karena bahasa penulis horornya pakai EN\n",
+    "import spacy #buat import spacy \n",
+    "from textblob import TextBlob\n",
+    "\n",
+    "# Any results you write to the current directory are saved as output.\n",
+    "from keras.preprocessing import sequence #import sequence buat model RNN/LSTM\n",
+    "from tensorflow.keras.utils import to_categorical #impor fungsi mengubah label ke format one-hot encoding\n",
+    "from keras.models import Sequential #buat model jaringan secara urut (satu-satu gitu)\n",
+    "from keras.layers import Dense, Dropout, Activation, Embedding #buat jaringan saraf\n",
+    "from keras.layers import LSTM #impor layer LSTM buat proses data secara sekuensial\n",
+    "\n",
+    "from sklearn.ensemble import RandomForestClassifier #buat klasifikasi berbasis banyak decision tree\n",
+    "from sklearn.model_selection import train_test_split #buat pisahin data menjadi data train dan test\n",
+    "from sklearn.metrics import confusion_matrix, classification_report #hitung confusion matriks sama buat report klasifikasi\n",
+    "from sklearn.feature_extraction.text import CountVectorizer #ubah teks ke vektor berdasar jumlah kata\n",
+    "from sklearn.decomposition import LatentDirichletAllocation #LDA untuk topik modelling\n",
+    "from sklearn.feature_extraction.text import TfidfVectorizer #mengubah teks menjadi vektor berdasar TF-IDF\n",
+    "from sklearn.decomposition import TruncatedSVD #buat reduksi dimensi setelah pake TF-IDF"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "1f673762",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:16.161498Z",
+     "iopub.status.busy": "2025-05-15T01:05:16.160823Z",
+     "iopub.status.idle": "2025-05-15T01:05:16.385083Z",
+     "shell.execute_reply": "2025-05-15T01:05:16.383435Z"
+    },
+    "papermill": {
+     "duration": 0.234236,
+     "end_time": "2025-05-15T01:05:16.388116",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:16.153880",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#Buat load datasets\n",
+    "train = pd.read_csv('/kaggle/input/ir-2025-spooky-author-identification/train/train.csv')\n",
+    "test = pd.read_csv('/kaggle/input/ir-2025-spooky-author-identification/test/test.csv')\n",
+    "sample = pd.read_csv('/kaggle/input/ir-2025-spooky-author-identification/sample_submission/sample_submission.csv')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "184977c0",
+   "metadata": {
+    "papermill": {
+     "duration": 0.005684,
+     "end_time": "2025-05-15T01:05:16.399917",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:16.394233",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# Preprocessing"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "94595f2f",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:16.414658Z",
+     "iopub.status.busy": "2025-05-15T01:05:16.414261Z",
+     "iopub.status.idle": "2025-05-15T01:05:16.452644Z",
+     "shell.execute_reply": "2025-05-15T01:05:16.451420Z"
+    },
+    "papermill": {
+     "duration": 0.048337,
+     "end_time": "2025-05-15T01:05:16.454221",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:16.405884",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>id</th>\n",
+       "      <th>text</th>\n",
+       "      <th>author</th>\n",
+       "      <th>author_num</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>id26305</td>\n",
+       "      <td>This process, however, afforded me no means of...</td>\n",
+       "      <td>EAP</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>id17569</td>\n",
+       "      <td>It never once occurred to me that the fumbling...</td>\n",
+       "      <td>HPL</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>id11008</td>\n",
+       "      <td>In his left hand was a gold snuff box, from wh...</td>\n",
+       "      <td>EAP</td>\n",
+       "      <td>0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>id27763</td>\n",
+       "      <td>How lovely is spring As we looked from Windsor...</td>\n",
+       "      <td>MWS</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>id12958</td>\n",
+       "      <td>Finding nothing else, not even gold, the Super...</td>\n",
+       "      <td>HPL</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "        id                                               text author  \\\n",
+       "0  id26305  This process, however, afforded me no means of...    EAP   \n",
+       "1  id17569  It never once occurred to me that the fumbling...    HPL   \n",
+       "2  id11008  In his left hand was a gold snuff box, from wh...    EAP   \n",
+       "3  id27763  How lovely is spring As we looked from Windsor...    MWS   \n",
+       "4  id12958  Finding nothing else, not even gold, the Super...    HPL   \n",
+       "\n",
+       "   author_num  \n",
+       "0           0  \n",
+       "1           1  \n",
+       "2           0  \n",
+       "3           2  \n",
+       "4           1  "
+      ]
+     },
+     "execution_count": 4,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#Ini buat assign author ke kolom baru 'author_num'\n",
+    "#0 -> 'EAP'\n",
+    "#1 -> 'HPL'\n",
+    "#2 -> 'MWS'\n",
+    "train['author_num']=train['author'].apply({'EAP':0,  'HPL':1,'MWS':2}.get)\n",
+    "train.head() #ini buat munculin datanya"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "id": "8ed71abf",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:16.468342Z",
+     "iopub.status.busy": "2025-05-15T01:05:16.467880Z",
+     "iopub.status.idle": "2025-05-15T01:05:16.475670Z",
+     "shell.execute_reply": "2025-05-15T01:05:16.474562Z"
+    },
+    "papermill": {
+     "duration": 0.016938,
+     "end_time": "2025-05-15T01:05:16.477623",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:16.460685",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#Ini buat assign feature sama targetnya\n",
+    "X_text_train=train['text'].values\n",
+    "X_text_test=test['text'].values\n",
+    "y=train['author_num'].values\n",
+    "num_labels = len(np.unique(train['author_num']))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "415e30d3",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:16.492336Z",
+     "iopub.status.busy": "2025-05-15T01:05:16.491918Z",
+     "iopub.status.idle": "2025-05-15T01:05:16.502567Z",
+     "shell.execute_reply": "2025-05-15T01:05:16.500976Z"
+    },
+    "papermill": {
+     "duration": 0.019607,
+     "end_time": "2025-05-15T01:05:16.504399",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:16.484792",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#Ini buat define stopword dan buat stemming , librarynya pakai bahasa EN\n",
+    "stop_words = set(stopwords.words('english'))\n",
+    "stop_words.update(['.', ',', '\"', \"'\", ':', ';', '(', ')', '[', ']', '{', '}'])\n",
+    "stemmer = SnowballStemmer('english')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "074fefa0",
+   "metadata": {
+    "papermill": {
+     "duration": 0.005945,
+     "end_time": "2025-05-15T01:05:16.517097",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:16.511152",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# NLTK tokenize package"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "id": "f19e8b25",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:16.530977Z",
+     "iopub.status.busy": "2025-05-15T01:05:16.530615Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.314296Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.313218Z"
+    },
+    "papermill": {
+     "duration": 8.792814,
+     "end_time": "2025-05-15T01:05:25.316217",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:16.523403",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#Preprocess teks di train \n",
+    "processed_train = []\n",
+    "for doc in X_text_train:\n",
+    "    tokens = word_tokenize(doc)\n",
+    "    filtered = [word for word in tokens if word not in stop_words]\n",
+    "    stemmed = [stemmer.stem(word) for word in filtered]\n",
+    "    processed_train.append(stemmed)\n",
+    "#Preprocess teks di test\n",
+    "processed_test = []\n",
+    "for doc in X_text_test:\n",
+    "    tokens = word_tokenize(doc)\n",
+    "    filtered = [word for word in tokens if word not in stop_words]\n",
+    "    stemmed = [stemmer.stem(word) for word in filtered]\n",
+    "    processed_test.append(stemmed)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "id": "90146abe",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.330490Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.330059Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.336207Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.335435Z"
+    },
+    "papermill": {
+     "duration": 0.014907,
+     "end_time": "2025-05-15T01:05:25.337820",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.322913",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'It never once occurred to me that the fumbling might be a mere mistake.'"
+      ]
+     },
+     "execution_count": 8,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#ini buat coba X_text_train / testing output. Output yang muncul itu indeks 1 dari X_text_train\n",
+    "X_text_train[1]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "19a1aab2",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.352171Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.351824Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.358415Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.357445Z"
+    },
+    "papermill": {
+     "duration": 0.016026,
+     "end_time": "2025-05-15T01:05:25.360199",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.344173",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "['it', 'never', 'occur', 'fumbl', 'might', 'mere', 'mistak']"
+      ]
+     },
+     "execution_count": 9,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#ini buat coba tes processed_train / testing output. Output itu indeks 1 dari X_text_train yang udah di tokenisasi, udah di filter dari stopwords dan udah di stem (diubah ke bentuk dasar)\n",
+    "processed_train[1]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "id": "76849bf3",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.374129Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.373792Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.384324Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.383409Z"
+    },
+    "papermill": {
+     "duration": 0.019312,
+     "end_time": "2025-05-15T01:05:25.386050",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.366738",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#ini buat nambah kolom processed_train ke tabel test \n",
+    "train['processed_train']=processed_train"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "2c3bcb4f",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.399628Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.399287Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.411088Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.410188Z"
+    },
+    "papermill": {
+     "duration": 0.020451,
+     "end_time": "2025-05-15T01:05:25.412689",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.392238",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>id</th>\n",
+       "      <th>text</th>\n",
+       "      <th>author</th>\n",
+       "      <th>author_num</th>\n",
+       "      <th>processed_train</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>id26305</td>\n",
+       "      <td>This process, however, afforded me no means of...</td>\n",
+       "      <td>EAP</td>\n",
+       "      <td>0</td>\n",
+       "      <td>[this, process, howev, afford, mean, ascertain...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>id17569</td>\n",
+       "      <td>It never once occurred to me that the fumbling...</td>\n",
+       "      <td>HPL</td>\n",
+       "      <td>1</td>\n",
+       "      <td>[it, never, occur, fumbl, might, mere, mistak]</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>id11008</td>\n",
+       "      <td>In his left hand was a gold snuff box, from wh...</td>\n",
+       "      <td>EAP</td>\n",
+       "      <td>0</td>\n",
+       "      <td>[in, left, hand, gold, snuff, box, caper, hill...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>id27763</td>\n",
+       "      <td>How lovely is spring As we looked from Windsor...</td>\n",
+       "      <td>MWS</td>\n",
+       "      <td>2</td>\n",
+       "      <td>[how, love, spring, as, look, windsor, terrac,...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>id12958</td>\n",
+       "      <td>Finding nothing else, not even gold, the Super...</td>\n",
+       "      <td>HPL</td>\n",
+       "      <td>1</td>\n",
+       "      <td>[find, noth, els, even, gold, superintend, aba...</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "        id                                               text author  \\\n",
+       "0  id26305  This process, however, afforded me no means of...    EAP   \n",
+       "1  id17569  It never once occurred to me that the fumbling...    HPL   \n",
+       "2  id11008  In his left hand was a gold snuff box, from wh...    EAP   \n",
+       "3  id27763  How lovely is spring As we looked from Windsor...    MWS   \n",
+       "4  id12958  Finding nothing else, not even gold, the Super...    HPL   \n",
+       "\n",
+       "   author_num                                    processed_train  \n",
+       "0           0  [this, process, howev, afford, mean, ascertain...  \n",
+       "1           1     [it, never, occur, fumbl, might, mere, mistak]  \n",
+       "2           0  [in, left, hand, gold, snuff, box, caper, hill...  \n",
+       "3           2  [how, love, spring, as, look, windsor, terrac,...  \n",
+       "4           1  [find, noth, els, even, gold, superintend, aba...  "
+      ]
+     },
+     "execution_count": 11,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#ini buat tes apakah kolom baru processed_train sudah masuk\n",
+    "train.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "id": "2967533f",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.427193Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.426320Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.433695Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.432736Z"
+    },
+    "papermill": {
+     "duration": 0.016579,
+     "end_time": "2025-05-15T01:05:25.435651",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.419072",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "Index(['id', 'text', 'author', 'author_num', 'processed_train'], dtype='object')"
+      ]
+     },
+     "execution_count": 12,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#ini buat tau kolom apa aja yang udah ada di tabel train\n",
+    "train.columns"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "id": "5657aa20",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.450119Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.449783Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.538263Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.537169Z"
+    },
+    "papermill": {
+     "duration": 0.098339,
+     "end_time": "2025-05-15T01:05:25.540528",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.442189",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#menggabungkan token hasil pre-processing menjadi kalimat utuh kemudian dijadikan satu di 'final_processed_text' di tabel train\n",
+    "\n",
+    "row_lst = []\n",
+    "for lst in train.loc[:,'processed_train']:\n",
+    "    text = ''\n",
+    "    for word in lst:\n",
+    "        text = text + ' ' + word\n",
+    "    row_lst.append(text)\n",
+    "\n",
+    "train['final_processed_text'] = row_lst"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "id": "ac886800",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.556431Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.556053Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.568950Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.567868Z"
+    },
+    "papermill": {
+     "duration": 0.023176,
+     "end_time": "2025-05-15T01:05:25.571356",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.548180",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>id</th>\n",
+       "      <th>text</th>\n",
+       "      <th>processed_test</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>id02310</td>\n",
+       "      <td>Still, as I urged our leaving Ireland with suc...</td>\n",
+       "      <td>[still, i, urg, leav, ireland, inquietud, impa...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>id24541</td>\n",
+       "      <td>If a fire wanted fanning, it could readily be ...</td>\n",
+       "      <td>[if, fire, want, fan, could, readili, fan, new...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>id00134</td>\n",
+       "      <td>And when they had broken down the frail door t...</td>\n",
+       "      <td>[and, broken, frail, door, found, two, clean, ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>id27757</td>\n",
+       "      <td>While I was thinking how I should possibly man...</td>\n",
+       "      <td>[while, i, think, i, possibl, manag, without, ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>id04081</td>\n",
+       "      <td>I am not sure to what limit his knowledge may ...</td>\n",
+       "      <td>[i, sure, limit, knowledg, may, extend]</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "        id                                               text  \\\n",
+       "0  id02310  Still, as I urged our leaving Ireland with suc...   \n",
+       "1  id24541  If a fire wanted fanning, it could readily be ...   \n",
+       "2  id00134  And when they had broken down the frail door t...   \n",
+       "3  id27757  While I was thinking how I should possibly man...   \n",
+       "4  id04081  I am not sure to what limit his knowledge may ...   \n",
+       "\n",
+       "                                      processed_test  \n",
+       "0  [still, i, urg, leav, ireland, inquietud, impa...  \n",
+       "1  [if, fire, want, fan, could, readili, fan, new...  \n",
+       "2  [and, broken, frail, door, found, two, clean, ...  \n",
+       "3  [while, i, think, i, possibl, manag, without, ...  \n",
+       "4            [i, sure, limit, knowledg, may, extend]  "
+      ]
+     },
+     "execution_count": 14,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#memasukkan kolom 'processed_test' di tabel test\n",
+    "test['processed_test']=processed_test\n",
+    "test.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "id": "cf769fa8",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.586580Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.586208Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.632066Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.631104Z"
+    },
+    "papermill": {
+     "duration": 0.05544,
+     "end_time": "2025-05-15T01:05:25.633761",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.578321",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>id</th>\n",
+       "      <th>text</th>\n",
+       "      <th>processed_test</th>\n",
+       "      <th>final_processed_test</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>id02310</td>\n",
+       "      <td>Still, as I urged our leaving Ireland with suc...</td>\n",
+       "      <td>[still, i, urg, leav, ireland, inquietud, impa...</td>\n",
+       "      <td>still i urg leav ireland inquietud impati fat...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>id24541</td>\n",
+       "      <td>If a fire wanted fanning, it could readily be ...</td>\n",
+       "      <td>[if, fire, want, fan, could, readili, fan, new...</td>\n",
+       "      <td>if fire want fan could readili fan newspap go...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>id00134</td>\n",
+       "      <td>And when they had broken down the frail door t...</td>\n",
+       "      <td>[and, broken, frail, door, found, two, clean, ...</td>\n",
+       "      <td>and broken frail door found two clean pick hu...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>id27757</td>\n",
+       "      <td>While I was thinking how I should possibly man...</td>\n",
+       "      <td>[while, i, think, i, possibl, manag, without, ...</td>\n",
+       "      <td>while i think i possibl manag without one act...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>id04081</td>\n",
+       "      <td>I am not sure to what limit his knowledge may ...</td>\n",
+       "      <td>[i, sure, limit, knowledg, may, extend]</td>\n",
+       "      <td>i sure limit knowledg may extend</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "        id                                               text  \\\n",
+       "0  id02310  Still, as I urged our leaving Ireland with suc...   \n",
+       "1  id24541  If a fire wanted fanning, it could readily be ...   \n",
+       "2  id00134  And when they had broken down the frail door t...   \n",
+       "3  id27757  While I was thinking how I should possibly man...   \n",
+       "4  id04081  I am not sure to what limit his knowledge may ...   \n",
+       "\n",
+       "                                      processed_test  \\\n",
+       "0  [still, i, urg, leav, ireland, inquietud, impa...   \n",
+       "1  [if, fire, want, fan, could, readili, fan, new...   \n",
+       "2  [and, broken, frail, door, found, two, clean, ...   \n",
+       "3  [while, i, think, i, possibl, manag, without, ...   \n",
+       "4            [i, sure, limit, knowledg, may, extend]   \n",
+       "\n",
+       "                                final_processed_test  \n",
+       "0   still i urg leav ireland inquietud impati fat...  \n",
+       "1   if fire want fan could readili fan newspap go...  \n",
+       "2   and broken frail door found two clean pick hu...  \n",
+       "3   while i think i possibl manag without one act...  \n",
+       "4                   i sure limit knowledg may extend  "
+      ]
+     },
+     "execution_count": 15,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#menggabungkan token hasil pre-processing menjadi kalimat utuh kemudian dijadikan satu di 'final_processed_text' di tabel test\n",
+    "#memasukkan kolom 'final_processed_test' ke tabel test\n",
+    "row_lst = []\n",
+    "for lst in test.loc[:,'processed_test']:\n",
+    "    text = ''\n",
+    "    for word in lst:\n",
+    "        text = text + ' ' + word\n",
+    "    row_lst.append(text)\n",
+    "\n",
+    "test['final_processed_test'] = row_lst\n",
+    "\n",
+    "test.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "id": "8b246de9",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.652659Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.651864Z",
+     "iopub.status.idle": "2025-05-15T01:05:25.667379Z",
+     "shell.execute_reply": "2025-05-15T01:05:25.666028Z"
+    },
+    "papermill": {
+     "duration": 0.026877,
+     "end_time": "2025-05-15T01:05:25.669277",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.642400",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>id</th>\n",
+       "      <th>text</th>\n",
+       "      <th>author</th>\n",
+       "      <th>author_num</th>\n",
+       "      <th>processed_train</th>\n",
+       "      <th>final_processed_text</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>id26305</td>\n",
+       "      <td>This process, however, afforded me no means of...</td>\n",
+       "      <td>EAP</td>\n",
+       "      <td>0</td>\n",
+       "      <td>[this, process, howev, afford, mean, ascertain...</td>\n",
+       "      <td>this process howev afford mean ascertain dime...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>id17569</td>\n",
+       "      <td>It never once occurred to me that the fumbling...</td>\n",
+       "      <td>HPL</td>\n",
+       "      <td>1</td>\n",
+       "      <td>[it, never, occur, fumbl, might, mere, mistak]</td>\n",
+       "      <td>it never occur fumbl might mere mistak</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>id11008</td>\n",
+       "      <td>In his left hand was a gold snuff box, from wh...</td>\n",
+       "      <td>EAP</td>\n",
+       "      <td>0</td>\n",
+       "      <td>[in, left, hand, gold, snuff, box, caper, hill...</td>\n",
+       "      <td>in left hand gold snuff box caper hill cut ma...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>id27763</td>\n",
+       "      <td>How lovely is spring As we looked from Windsor...</td>\n",
+       "      <td>MWS</td>\n",
+       "      <td>2</td>\n",
+       "      <td>[how, love, spring, as, look, windsor, terrac,...</td>\n",
+       "      <td>how love spring as look windsor terrac sixtee...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>id12958</td>\n",
+       "      <td>Finding nothing else, not even gold, the Super...</td>\n",
+       "      <td>HPL</td>\n",
+       "      <td>1</td>\n",
+       "      <td>[find, noth, els, even, gold, superintend, aba...</td>\n",
+       "      <td>find noth els even gold superintend abandon a...</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "        id                                               text author  \\\n",
+       "0  id26305  This process, however, afforded me no means of...    EAP   \n",
+       "1  id17569  It never once occurred to me that the fumbling...    HPL   \n",
+       "2  id11008  In his left hand was a gold snuff box, from wh...    EAP   \n",
+       "3  id27763  How lovely is spring As we looked from Windsor...    MWS   \n",
+       "4  id12958  Finding nothing else, not even gold, the Super...    HPL   \n",
+       "\n",
+       "   author_num                                    processed_train  \\\n",
+       "0           0  [this, process, howev, afford, mean, ascertain...   \n",
+       "1           1     [it, never, occur, fumbl, might, mere, mistak]   \n",
+       "2           0  [in, left, hand, gold, snuff, box, caper, hill...   \n",
+       "3           2  [how, love, spring, as, look, windsor, terrac,...   \n",
+       "4           1  [find, noth, els, even, gold, superintend, aba...   \n",
+       "\n",
+       "                                final_processed_text  \n",
+       "0   this process howev afford mean ascertain dime...  \n",
+       "1             it never occur fumbl might mere mistak  \n",
+       "2   in left hand gold snuff box caper hill cut ma...  \n",
+       "3   how love spring as look windsor terrac sixtee...  \n",
+       "4   find noth els even gold superintend abandon a...  "
+      ]
+     },
+     "execution_count": 16,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#buat nge tes tabel train kolomnya udah ketambah semua atau belum\n",
+    "train.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "8061b073",
+   "metadata": {
+    "papermill": {
+     "duration": 0.007711,
+     "end_time": "2025-05-15T01:05:25.685659",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.677948",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# Named Entities"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "id": "624c3121",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:25.702716Z",
+     "iopub.status.busy": "2025-05-15T01:05:25.702311Z",
+     "iopub.status.idle": "2025-05-15T01:05:37.029641Z",
+     "shell.execute_reply": "2025-05-15T01:05:37.028280Z"
+    },
+    "papermill": {
+     "duration": 11.339209,
+     "end_time": "2025-05-15T01:05:37.031964",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:25.692755",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Collecting en-core-web-sm==3.7.1\r\n",
+      "  Downloading https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl (12.8 MB)\r\n",
+      "\u001b[2K     \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m12.8/12.8 MB\u001b[0m \u001b[31m71.5 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\r\n",
+      "\u001b[?25hRequirement already satisfied: spacy<3.8.0,>=3.7.2 in /usr/local/lib/python3.11/dist-packages (from en-core-web-sm==3.7.1) (3.7.5)\r\n",
+      "Requirement already satisfied: spacy-legacy<3.1.0,>=3.0.11 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.0.12)\r\n",
+      "Requirement already satisfied: spacy-loggers<2.0.0,>=1.0.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.0.5)\r\n",
+      "Requirement already satisfied: murmurhash<1.1.0,>=0.28.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.0.12)\r\n",
+      "Requirement already satisfied: cymem<2.1.0,>=2.0.2 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.0.11)\r\n",
+      "Requirement already satisfied: preshed<3.1.0,>=3.0.2 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.0.9)\r\n",
+      "Requirement already satisfied: thinc<8.3.0,>=8.2.2 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (8.2.5)\r\n",
+      "Requirement already satisfied: wasabi<1.2.0,>=0.9.1 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.1.3)\r\n",
+      "Requirement already satisfied: srsly<3.0.0,>=2.4.3 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.5.1)\r\n",
+      "Requirement already satisfied: catalogue<2.1.0,>=2.0.6 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.0.10)\r\n",
+      "Requirement already satisfied: weasel<0.5.0,>=0.1.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.4.1)\r\n",
+      "Requirement already satisfied: typer<1.0.0,>=0.3.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.15.1)\r\n",
+      "Requirement already satisfied: tqdm<5.0.0,>=4.38.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (4.67.1)\r\n",
+      "Requirement already satisfied: requests<3.0.0,>=2.13.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.32.3)\r\n",
+      "Requirement already satisfied: pydantic!=1.8,!=1.8.1,<3.0.0,>=1.7.4 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.11.3)\r\n",
+      "Requirement already satisfied: jinja2 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.1.6)\r\n",
+      "Requirement already satisfied: setuptools in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (75.1.0)\r\n",
+      "Requirement already satisfied: packaging>=20.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (24.2)\r\n",
+      "Requirement already satisfied: langcodes<4.0.0,>=3.2.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.5.0)\r\n",
+      "Requirement already satisfied: numpy>=1.19.0 in /usr/local/lib/python3.11/dist-packages (from spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.26.4)\r\n",
+      "Requirement already satisfied: language-data>=1.2 in /usr/local/lib/python3.11/dist-packages (from langcodes<4.0.0,>=3.2.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.3.0)\r\n",
+      "Requirement already satisfied: mkl_fft in /usr/local/lib/python3.11/dist-packages (from numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.3.8)\r\n",
+      "Requirement already satisfied: mkl_random in /usr/local/lib/python3.11/dist-packages (from numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.2.4)\r\n",
+      "Requirement already satisfied: mkl_umath in /usr/local/lib/python3.11/dist-packages (from numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.1.1)\r\n",
+      "Requirement already satisfied: mkl in /usr/local/lib/python3.11/dist-packages (from numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2025.1.0)\r\n",
+      "Requirement already satisfied: tbb4py in /usr/local/lib/python3.11/dist-packages (from numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2022.1.0)\r\n",
+      "Requirement already satisfied: mkl-service in /usr/local/lib/python3.11/dist-packages (from numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.4.1)\r\n",
+      "Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.11/dist-packages (from pydantic!=1.8,!=1.8.1,<3.0.0,>=1.7.4->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.7.0)\r\n",
+      "Requirement already satisfied: pydantic-core==2.33.1 in /usr/local/lib/python3.11/dist-packages (from pydantic!=1.8,!=1.8.1,<3.0.0,>=1.7.4->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.33.1)\r\n",
+      "Requirement already satisfied: typing-extensions>=4.12.2 in /usr/local/lib/python3.11/dist-packages (from pydantic!=1.8,!=1.8.1,<3.0.0,>=1.7.4->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (4.13.1)\r\n",
+      "Requirement already satisfied: typing-inspection>=0.4.0 in /usr/local/lib/python3.11/dist-packages (from pydantic!=1.8,!=1.8.1,<3.0.0,>=1.7.4->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.4.0)\r\n",
+      "Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/dist-packages (from requests<3.0.0,>=2.13.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.4.1)\r\n",
+      "Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.11/dist-packages (from requests<3.0.0,>=2.13.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.10)\r\n",
+      "Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.11/dist-packages (from requests<3.0.0,>=2.13.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.3.0)\r\n",
+      "Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.11/dist-packages (from requests<3.0.0,>=2.13.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2025.1.31)\r\n",
+      "Requirement already satisfied: blis<0.8.0,>=0.7.8 in /usr/local/lib/python3.11/dist-packages (from thinc<8.3.0,>=8.2.2->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.7.11)\r\n",
+      "Requirement already satisfied: confection<1.0.0,>=0.0.1 in /usr/local/lib/python3.11/dist-packages (from thinc<8.3.0,>=8.2.2->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.1.5)\r\n",
+      "Requirement already satisfied: click>=8.0.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0.0,>=0.3.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (8.1.8)\r\n",
+      "Requirement already satisfied: shellingham>=1.3.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0.0,>=0.3.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.5.4)\r\n",
+      "Requirement already satisfied: rich>=10.11.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0.0,>=0.3.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (14.0.0)\r\n",
+      "Requirement already satisfied: cloudpathlib<1.0.0,>=0.7.0 in /usr/local/lib/python3.11/dist-packages (from weasel<0.5.0,>=0.1.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.20.0)\r\n",
+      "Requirement already satisfied: smart-open<8.0.0,>=5.2.1 in /usr/local/lib/python3.11/dist-packages (from weasel<0.5.0,>=0.1.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (7.1.0)\r\n",
+      "Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.11/dist-packages (from jinja2->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.0.2)\r\n",
+      "Requirement already satisfied: marisa-trie>=1.1.0 in /usr/local/lib/python3.11/dist-packages (from language-data>=1.2->langcodes<4.0.0,>=3.2.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.2.1)\r\n",
+      "Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.11/dist-packages (from rich>=10.11.0->typer<1.0.0,>=0.3.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (3.0.0)\r\n",
+      "Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.11/dist-packages (from rich>=10.11.0->typer<1.0.0,>=0.3.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2.19.1)\r\n",
+      "Requirement already satisfied: wrapt in /usr/local/lib/python3.11/dist-packages (from smart-open<8.0.0,>=5.2.1->weasel<0.5.0,>=0.1.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.17.2)\r\n",
+      "Requirement already satisfied: intel-openmp<2026,>=2024 in /usr/local/lib/python3.11/dist-packages (from mkl->numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2024.2.0)\r\n",
+      "Requirement already satisfied: tbb==2022.* in /usr/local/lib/python3.11/dist-packages (from mkl->numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2022.1.0)\r\n",
+      "Requirement already satisfied: tcmlib==1.* in /usr/local/lib/python3.11/dist-packages (from tbb==2022.*->mkl->numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (1.2.0)\r\n",
+      "Requirement already satisfied: intel-cmplr-lib-rt in /usr/local/lib/python3.11/dist-packages (from mkl_umath->numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2024.2.0)\r\n",
+      "Requirement already satisfied: intel-cmplr-lib-ur==2024.2.0 in /usr/local/lib/python3.11/dist-packages (from intel-openmp<2026,>=2024->mkl->numpy>=1.19.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (2024.2.0)\r\n",
+      "Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.11/dist-packages (from markdown-it-py>=2.2.0->rich>=10.11.0->typer<1.0.0,>=0.3.0->spacy<3.8.0,>=3.7.2->en-core-web-sm==3.7.1) (0.1.2)\r\n",
+      "\u001b[38;5;2m✔ Download and installation successful\u001b[0m\r\n",
+      "You can now load the package via spacy.load('en_core_web_sm')\r\n",
+      "\u001b[38;5;3m⚠ Restart to reload dependencies\u001b[0m\r\n",
+      "If you are in a Jupyter or Colab notebook, you may need to restart Python in\r\n",
+      "order to load all the package's dependencies. You can do this by selecting the\r\n",
+      "'Restart kernel' or 'Restart runtime' option.\r\n"
+     ]
+    }
+   ],
+   "source": [
+    "#ini buat install en_core_web_sm buat spacy\n",
+    "!python -m spacy download en_core_web_sm"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "id": "aa41b45f",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:37.050610Z",
+     "iopub.status.busy": "2025-05-15T01:05:37.049589Z",
+     "iopub.status.idle": "2025-05-15T01:05:37.971945Z",
+     "shell.execute_reply": "2025-05-15T01:05:37.971031Z"
+    },
+    "papermill": {
+     "duration": 0.93365,
+     "end_time": "2025-05-15T01:05:37.973770",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:37.040120",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#ini buat nge load en_core_web_sm\n",
+    "nlp = spacy.load('en_core_web_sm')\n",
+    "\n",
+    "content = []\n",
+    "for i in train['processed_train']:\n",
+    "    content.append(i)\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "2a2580b1",
+   "metadata": {
+    "papermill": {
+     "duration": 0.008635,
+     "end_time": "2025-05-15T01:05:37.991628",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:37.982993",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# Use LDA to identify topic"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "id": "db8160fd",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:05:38.011157Z",
+     "iopub.status.busy": "2025-05-15T01:05:38.010805Z",
+     "iopub.status.idle": "2025-05-15T01:06:12.569647Z",
+     "shell.execute_reply": "2025-05-15T01:06:12.568408Z"
+    },
+    "papermill": {
+     "duration": 34.577774,
+     "end_time": "2025-05-15T01:06:12.579143",
+     "exception": false,
+     "start_time": "2025-05-15T01:05:38.001369",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Topic 0\n",
+      "know heart like said did time saw come things man men idris death night life adrian hope misery raymond return love came let tell years \n",
+      "\n",
+      "Topic 1\n",
+      "did shall door knew words like heard thing thought way death great make room old time eye soon spirit man face came dark said shadow \n",
+      "\n",
+      "Topic 2\n",
+      "man eyes day let night life morning great strange came place old general say young dream way said escape end fact world mind air like \n",
+      "\n",
+      "Topic 3\n",
+      "time did far day father little man saw looked like good night hand old years mr new life eyes hope horror gave thought city near \n",
+      "\n",
+      "Topic 4\n",
+      "human great night left things passed like life world house told day earth man england lay said did nature half horror years seen death way \n",
+      "\n",
+      "Topic 5\n",
+      "did man old time say felt went eyes night great work house just thing main thought end fell clock little cottage head shall left youth \n",
+      "\n",
+      "Topic 6\n",
+      "great water man felt old time little saw life body seen mind world say earth having moon thought sea certain soon brought day large way \n",
+      "\n",
+      "Topic 7\n",
+      "said man old little heard voice place say came like men head friend power time point matter true spoke thousand life night gave eyes room \n",
+      "\n",
+      "Topic 8\n",
+      "left saw far life house father things door long night better old little city right time love sea just proceeded took point arm day marie \n",
+      "\n",
+      "Topic 9\n",
+      "eyes love long time moment feet lay length thy earth nature soul felt heart did mind lips came thousand beauty like thought countenance thee head \n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "# menjalankan Topic Modeling dengan metode LDA (Latent Dirichlet Allocation) pada data teks menggunakan CountVectorizer dari Scikit-lear\n",
+    "from sklearn.decomposition import LatentDirichletAllocation, TruncatedSVD #ini buat import\n",
+    "cv = CountVectorizer(stop_words='english') #ini buat ngatur stopwordnya dari EN\n",
+    "cv.fit(train['text']) #ini buat train cv dari kolom teks\n",
+    "X = cv.transform(train['text']) #ini buat ngubah dari teks ke matriks\n",
+    "feature_names = cv.get_feature_names_out() #ini mengambil daftar kata yang dipake cv\n",
+    "\n",
+    "lda = LatentDirichletAllocation(n_components=10) #ini buat lda dengan topiknya ada 10\n",
+    "lda.fit(X) #melatih LDA\n",
+    "\n",
+    "#ini buat simpan result ke dataframe\n",
+    "results = pd.DataFrame(lda.components_,\n",
+    "                      columns=feature_names)\n",
+    "\n",
+    "#ini intinya nge print\n",
+    "for topic in range(10):\n",
+    "    print('Topic', topic)\n",
+    "    word_list = results.T[topic].sort_values(ascending=False).index\n",
+    "    print(' '.join(word_list[0:25]), '\\n')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "4fe1c074",
+   "metadata": {
+    "papermill": {
+     "duration": 0.008339,
+     "end_time": "2025-05-15T01:06:12.595758",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:12.587419",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# RandomForestClassifier"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 20,
+   "id": "5af8d96b",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:06:12.613679Z",
+     "iopub.status.busy": "2025-05-15T01:06:12.612620Z",
+     "iopub.status.idle": "2025-05-15T01:06:16.273791Z",
+     "shell.execute_reply": "2025-05-15T01:06:16.272306Z"
+    },
+    "papermill": {
+     "duration": 3.672172,
+     "end_time": "2025-05-15T01:06:16.275823",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:12.603651",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\r\n",
+      "\r\n",
+      "\r\n",
+      "git is already the newest version (1:2.34.1-1ubuntu1.12).\r\n",
+      "0 upgraded, 0 newly installed, 0 to remove and 122 not upgraded.\r\n"
+     ]
+    }
+   ],
+   "source": [
+    "!apt-get install git"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "id": "44844744",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:06:16.295679Z",
+     "iopub.status.busy": "2025-05-15T01:06:16.295257Z",
+     "iopub.status.idle": "2025-05-15T01:06:16.613554Z",
+     "shell.execute_reply": "2025-05-15T01:06:16.611964Z"
+    },
+    "papermill": {
+     "duration": 0.330536,
+     "end_time": "2025-05-15T01:06:16.615636",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:16.285100",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "!git config --global user.email \"bintang.pmngks@student.ub.ac.id\"\n",
+    "!git config --global user.name \"Estrella\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "8449a9b9",
+   "metadata": {
+    "papermill": {
+     "duration": 0.012148,
+     "end_time": "2025-05-15T01:06:16.710844",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:16.698696",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "id": "f5dcef64",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:06:16.731428Z",
+     "iopub.status.busy": "2025-05-15T01:06:16.731039Z",
+     "iopub.status.idle": "2025-05-15T01:06:16.746514Z",
+     "shell.execute_reply": "2025-05-15T01:06:16.745550Z"
+    },
+    "papermill": {
+     "duration": 0.028146,
+     "end_time": "2025-05-15T01:06:16.748378",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:16.720232",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#membagi dataset menjadi data pelatihan (train) dan data pengujian (test)\n",
+    "X_train, X_test, y_train, y_test = train_test_split(train['final_processed_text'],\n",
+    "                                                   train['author_num'],\n",
+    "                                                   test_size=0.33,\n",
+    "                                                   random_state=8675309)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "id": "904499ea",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:06:16.768765Z",
+     "iopub.status.busy": "2025-05-15T01:06:16.768399Z",
+     "iopub.status.idle": "2025-05-15T01:06:42.719730Z",
+     "shell.execute_reply": "2025-05-15T01:06:42.718583Z"
+    },
+    "papermill": {
+     "duration": 25.964183,
+     "end_time": "2025-05-15T01:06:42.721744",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:16.757561",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "0.7180439492417209\n",
+      "[[1991  240  431]\n",
+      " [ 416 1167  243]\n",
+      " [ 357  135 1482]]\n",
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "           0       0.72      0.75      0.73      2662\n",
+      "           1       0.76      0.64      0.69      1826\n",
+      "           2       0.69      0.75      0.72      1974\n",
+      "\n",
+      "    accuracy                           0.72      6462\n",
+      "   macro avg       0.72      0.71      0.71      6462\n",
+      "weighted avg       0.72      0.72      0.72      6462\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "#ini dipake buat bangun dan eval model klasifikasi pake random forest\n",
+    "cv = CountVectorizer(stop_words='english')\n",
+    "cv.fit(X_train)\n",
+    "\n",
+    "X_train_cv = cv.transform(X_train)\n",
+    "X_test_cv = cv.transform(X_test)\n",
+    "\n",
+    "rf = RandomForestClassifier()\n",
+    "rf.fit(X_train_cv, y_train)\n",
+    "print(rf.score(X_test_cv, y_test))\n",
+    "predictions = rf.predict(X_test_cv)\n",
+    "print(confusion_matrix(y_test, predictions))\n",
+    "print(classification_report(y_test, predictions))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "52c7f98c",
+   "metadata": {
+    "papermill": {
+     "duration": 0.008734,
+     "end_time": "2025-05-15T01:06:42.739970",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:42.731236",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# TfidfVectorizer() with English stop words"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "id": "b26baf88",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:06:42.760183Z",
+     "iopub.status.busy": "2025-05-15T01:06:42.759867Z",
+     "iopub.status.idle": "2025-05-15T01:07:07.225533Z",
+     "shell.execute_reply": "2025-05-15T01:07:07.224173Z"
+    },
+    "papermill": {
+     "duration": 24.478173,
+     "end_time": "2025-05-15T01:07:07.227320",
+     "exception": false,
+     "start_time": "2025-05-15T01:06:42.749147",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "0.7124729186010523\n",
+      "[[2041  275  346]\n",
+      " [ 436 1199  191]\n",
+      " [ 419  191 1364]]\n",
+      "              precision    recall  f1-score   support\n",
+      "\n",
+      "           0       0.70      0.77      0.73      2662\n",
+      "           1       0.72      0.66      0.69      1826\n",
+      "           2       0.72      0.69      0.70      1974\n",
+      "\n",
+      "    accuracy                           0.71      6462\n",
+      "   macro avg       0.71      0.70      0.71      6462\n",
+      "weighted avg       0.71      0.71      0.71      6462\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "#ini intinya buat hitung tfidf\n",
+    "tfidf = TfidfVectorizer(stop_words='english')\n",
+    "tfidf.fit(X_train)\n",
+    "\n",
+    "X_train_tfidf = tfidf.transform(X_train)\n",
+    "X_test_tfidf = tfidf.transform(X_test)\n",
+    "test_tfidf = tfidf.transform(test['final_processed_test'])\n",
+    "\n",
+    "rf = RandomForestClassifier()\n",
+    "rf.fit(X_train_tfidf, y_train)\n",
+    "print(rf.score(X_test_tfidf, y_test))\n",
+    "predictions = rf.predict(X_test_tfidf)\n",
+    "print(confusion_matrix(y_test, predictions))\n",
+    "print(classification_report(y_test, predictions))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "id": "fa623ae1",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:07:07.248576Z",
+     "iopub.status.busy": "2025-05-15T01:07:07.247330Z",
+     "iopub.status.idle": "2025-05-15T01:07:08.350708Z",
+     "shell.execute_reply": "2025-05-15T01:07:08.349655Z"
+    },
+    "papermill": {
+     "duration": 1.115511,
+     "end_time": "2025-05-15T01:07:08.352381",
+     "exception": false,
+     "start_time": "2025-05-15T01:07:07.236870",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "pred=rf.predict_proba(test_tfidf) #predict probabilitas\n",
+    "prob=pd.DataFrame(pred,columns=['EAP','HPL','MWS']) #buat kolom\n",
+    "submit1=pd.concat([test, prob], axis=1) #buat gabungin test sama prob\n",
+    "del submit1['text'] #hapus kolom text dari submit1"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "id": "c8773b66",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:07:08.373008Z",
+     "iopub.status.busy": "2025-05-15T01:07:08.371907Z",
+     "iopub.status.idle": "2025-05-15T01:07:08.377297Z",
+     "shell.execute_reply": "2025-05-15T01:07:08.376341Z"
+    },
+    "papermill": {
+     "duration": 0.017213,
+     "end_time": "2025-05-15T01:07:08.378955",
+     "exception": false,
+     "start_time": "2025-05-15T01:07:08.361742",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#hapus ['processed_test'] dari submit1\n",
+    "del submit1['processed_test']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "id": "48b60b4e",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:07:08.399363Z",
+     "iopub.status.busy": "2025-05-15T01:07:08.399035Z",
+     "iopub.status.idle": "2025-05-15T01:07:08.403961Z",
+     "shell.execute_reply": "2025-05-15T01:07:08.403013Z"
+    },
+    "papermill": {
+     "duration": 0.01729,
+     "end_time": "2025-05-15T01:07:08.405568",
+     "exception": false,
+     "start_time": "2025-05-15T01:07:08.388278",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#hapus ['final_processed_test'] dari submit1\n",
+    "del submit1['final_processed_test']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "id": "27d66c22",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:07:08.425392Z",
+     "iopub.status.busy": "2025-05-15T01:07:08.425032Z",
+     "iopub.status.idle": "2025-05-15T01:07:08.443371Z",
+     "shell.execute_reply": "2025-05-15T01:07:08.442370Z"
+    },
+    "papermill": {
+     "duration": 0.030306,
+     "end_time": "2025-05-15T01:07:08.445170",
+     "exception": false,
+     "start_time": "2025-05-15T01:07:08.414864",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>id</th>\n",
+       "      <th>EAP</th>\n",
+       "      <th>HPL</th>\n",
+       "      <th>MWS</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>id02310</td>\n",
+       "      <td>0.230000</td>\n",
+       "      <td>0.050000</td>\n",
+       "      <td>0.720000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>id24541</td>\n",
+       "      <td>0.660000</td>\n",
+       "      <td>0.180000</td>\n",
+       "      <td>0.160000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>id00134</td>\n",
+       "      <td>0.340000</td>\n",
+       "      <td>0.620000</td>\n",
+       "      <td>0.040000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>id27757</td>\n",
+       "      <td>0.376429</td>\n",
+       "      <td>0.410000</td>\n",
+       "      <td>0.213571</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>id04081</td>\n",
+       "      <td>0.763101</td>\n",
+       "      <td>0.075446</td>\n",
+       "      <td>0.161453</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>...</th>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>8387</th>\n",
+       "      <td>id11749</td>\n",
+       "      <td>0.770086</td>\n",
+       "      <td>0.025155</td>\n",
+       "      <td>0.204759</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>8388</th>\n",
+       "      <td>id10526</td>\n",
+       "      <td>0.274983</td>\n",
+       "      <td>0.152970</td>\n",
+       "      <td>0.572047</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>8389</th>\n",
+       "      <td>id13477</td>\n",
+       "      <td>0.590000</td>\n",
+       "      <td>0.270000</td>\n",
+       "      <td>0.140000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>8390</th>\n",
+       "      <td>id13761</td>\n",
+       "      <td>0.250000</td>\n",
+       "      <td>0.130000</td>\n",
+       "      <td>0.620000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>8391</th>\n",
+       "      <td>id04282</td>\n",
+       "      <td>0.790000</td>\n",
+       "      <td>0.140000</td>\n",
+       "      <td>0.070000</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>8392 rows × 4 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "           id       EAP       HPL       MWS\n",
+       "0     id02310  0.230000  0.050000  0.720000\n",
+       "1     id24541  0.660000  0.180000  0.160000\n",
+       "2     id00134  0.340000  0.620000  0.040000\n",
+       "3     id27757  0.376429  0.410000  0.213571\n",
+       "4     id04081  0.763101  0.075446  0.161453\n",
+       "...       ...       ...       ...       ...\n",
+       "8387  id11749  0.770086  0.025155  0.204759\n",
+       "8388  id10526  0.274983  0.152970  0.572047\n",
+       "8389  id13477  0.590000  0.270000  0.140000\n",
+       "8390  id13761  0.250000  0.130000  0.620000\n",
+       "8391  id04282  0.790000  0.140000  0.070000\n",
+       "\n",
+       "[8392 rows x 4 columns]"
+      ]
+     },
+     "execution_count": 28,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#hasil akhir\n",
+    "submit1"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "id": "731e6a57",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-05-15T01:07:08.466307Z",
+     "iopub.status.busy": "2025-05-15T01:07:08.465968Z",
+     "iopub.status.idle": "2025-05-15T01:07:08.513861Z",
+     "shell.execute_reply": "2025-05-15T01:07:08.512579Z"
+    },
+    "papermill": {
+     "duration": 0.061063,
+     "end_time": "2025-05-15T01:07:08.515845",
+     "exception": false,
+     "start_time": "2025-05-15T01:07:08.454782",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#buat submission\n",
+    "submit1.to_csv('./kelompok2ver1.csv', index=False, header=True)"
+   ]
+  }
+ ],
+ "metadata": {
+  "kaggle": {
+   "accelerator": "none",
+   "dataSources": [
+    {
+     "databundleVersionId": 11486515,
+     "sourceId": 96653,
+     "sourceType": "competition"
+    }
+   ],
+   "dockerImageVersionId": 31012,
+   "isGpuEnabled": false,
+   "isInternetEnabled": true,
+   "language": "python",
+   "sourceType": "notebook"
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.11"
+  },
+  "papermill": {
+   "default_parameters": {},
+   "duration": 153.883465,
+   "end_time": "2025-05-15T01:07:11.333555",
+   "environment_variables": {},
+   "exception": null,
+   "input_path": "__notebook__.ipynb",
+   "output_path": "__notebook__.ipynb",
+   "parameters": {},
+   "start_time": "2025-05-15T01:04:37.450090",
+   "version": "2.6.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
